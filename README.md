@@ -20,6 +20,10 @@ The frontend sends only `{ latitude, longitude, target_month }`. The backend doe
 
 ---
 
+### Example :
+![Earth image](public/earth-show.png)
+
+---
 ## 1. How it works, end to end
 
 ![Request / Response Flow](public/request_flow.png)
