@@ -49,6 +49,15 @@ body {
   overflow: hidden;
 }
 
+/* Dashboard page needs normal scrolling */
+body.dashboard-page {
+  overflow: auto;
+}
+body.dashboard-page #root {
+  height: auto;
+  min-height: 100%;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

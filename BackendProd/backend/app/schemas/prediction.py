@@ -95,3 +95,9 @@ class PredictionResponse(BaseModel):
     grid_longitude: float
     depths_m: List[float]
     temperature_c: List[float]
+    # ── derived analytics (computed in prediction_service) ────────────────
+    surface_temp_c: float
+    deep_temp_c: float
+    thermocline_depth_m: float   # depth of steepest temp gradient
+    temp_range_c: float
+    mean_temp_c: float

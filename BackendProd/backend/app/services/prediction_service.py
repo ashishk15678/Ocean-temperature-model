@@ -144,6 +144,21 @@ def predict(req_date: date, latitude: float, longitude: float) -> PredictionResp
     )
     logger.info(f"Denormalized temperatures: {temperatures}")
 
+    # ── 10. derive analytics ──────────────────────────────────────────────
+    temps = [round(float(t), 4) for t in temperatures]
+    depths = TARGET_DEPTHS
+
+    surface_temp = temps[0]
+    deep_temp    = temps[-1]
+    temp_range   = round(surface_temp - deep_temp, 4)
+    mean_temp    = round(float(np.mean(temperatures)), 4)
+
+    # Thermocline depth = depth of the steepest temperature gradient
+    gradients = [abs(temps[i+1] - temps[i]) / (depths[i+1] - depths[i])
+                 for i in range(len(depths) - 1)]
+    thermo_idx = int(np.argmax(gradients))
+    thermocline_depth = depths[thermo_idx]
+
     return PredictionResponse(
         date=str(req_date),
         latitude=latitude,
@@ -151,5 +166,10 @@ def predict(req_date: date, latitude: float, longitude: float) -> PredictionResp
         grid_latitude=round(grid_lat, 3),
         grid_longitude=round(grid_lon, 3),
         depths_m=TARGET_DEPTHS,
-        temperature_c=[round(float(t), 4) for t in temperatures],
+        temperature_c=temps,
+        surface_temp_c=round(surface_temp, 4),
+        deep_temp_c=round(deep_temp, 4),
+        thermocline_depth_m=thermocline_depth,
+        temp_range_c=temp_range,
+        mean_temp_c=mean_temp,
     )
