@@ -564,6 +564,7 @@ function Earth({ onOceanClick, dimmed, onHover }) {
     <primitive
       ref={groupRef}
       object={scene}
+      rotation={[Math.PI,0,0]}
       onClick={handleClick}
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
