@@ -7,23 +7,28 @@ const _dir    = new THREE.Vector3();
 /**
  * Converts a world-space intersection point on the globe into { lat, lon }.
  *
- * The Earth GLB is loaded with rotation={[Math.PI,0,0]} in R3F AND the
- * texture has flipY=false.  Both transforms together place the North Pole
- * at world +Z (not -Z).  The longitude axis mapping stays the same:
- *   East  →  world +Y   (lon = atan2(dy, dx) with East=+Y)
- *   North →  world +Z   (lat = asin(+dz))
+ * The GLB file has three nested Rx rotations that combine to Rx(-π/2).
+ * That remaps the sphere's local axes to world axes as:
  *
- * LONGITUDE_OFFSET can still be used to nudge texture alignment if needed.
+ *   local +Z (North Pole) → world +Y
+ *   local +X (lon=0°)     → world +X
+ *   local +Y (lon=90°E)   → world -Z
+ *
+ * Therefore, from a world-space direction vector (dx, dy, dz):
+ *   lat = asin(dy)         — North Pole is +Y
+ *   lon = atan2(-dz, dx)   — 90°E is -Z, 0° is +X
+ *
+ * LONGITUDE_OFFSET can be used to nudge texture alignment if needed.
  */
 export function pointToLatLon(point, group) {
   group.getWorldPosition(_center);
   _dir.copy(point).sub(_center).normalize();
 
   const lat = THREE.MathUtils.radToDeg(
-    Math.asin(THREE.MathUtils.clamp(_dir.z, -1, 1))   // North Pole = +Z
+    Math.asin(THREE.MathUtils.clamp(_dir.y, -1, 1))   // North Pole = +Y
   );
 
-  let lon = THREE.MathUtils.radToDeg(Math.atan2(_dir.y, _dir.x))  // East = +Y
+  let lon = THREE.MathUtils.radToDeg(Math.atan2(-_dir.z, _dir.x))  // 90°E = -Z, 0° = +X
     + CONFIG.LONGITUDE_OFFSET;
 
   // Normalise to [-180, 180]
@@ -40,24 +45,19 @@ export function pointToLatLon(point, group) {
 }
 
 /**
- * Inverse of pointToLatLon — converts geographic coords to a world-space
- * THREE.Vector3 on a sphere of the given radius.
+ * Inverse of pointToLatLon — geographic coords → world-space THREE.Vector3.
  *
- * Inverse of:
- *   lat = asin(+dz)  → dz = +sin(lat)
- *   lon = atan2(dy, dx)
- *   |d| = 1 → dx² + dy² + dz² = 1
- *   dx = cos(lat) * cos(lon)
- *   dy = cos(lat) * sin(lon)
- *   dz = +sin(lat)            ← North Pole = +Z
+ *   lat = asin(dy)       → dy =  sin(lat)
+ *   lon = atan2(-dz, dx) → dx =  cos(lat)·cos(lon)
+ *                           dz = -cos(lat)·sin(lon)
  */
 export function latLonToVector3(lat, lon, radius = 100) {
   const latRad = lat * (Math.PI / 180);
   const lonRad = (lon + CONFIG.LONGITUDE_OFFSET) * (Math.PI / 180);
   return new THREE.Vector3(
-    radius * Math.cos(latRad) * Math.cos(lonRad),   // +X = lon=0,  lat=0
-    radius * Math.cos(latRad) * Math.sin(lonRad),   // +Y = lon=90E, lat=0
-    radius * Math.sin(latRad),                       // +Z = North Pole
+    radius * Math.cos(latRad) * Math.cos(lonRad),   // +X = lon=0°,  lat=0°
+    radius * Math.sin(latRad),                       // +Y = North Pole
+    -radius * Math.cos(latRad) * Math.sin(lonRad),  // -Z = lon=90°E, lat=0°
   );
 }
 

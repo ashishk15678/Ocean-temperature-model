@@ -458,7 +458,7 @@ function CameraController({ stage, clickedPoint, onComplete }) {
       animate();
     } else if (stage === 'zoom-out') {
       const startPos = camera.position.clone();
-      const endPos = new THREE.Vector3(0, 0, 250);
+      const endPos = new THREE.Vector3(110, 65, -215); // Indian Ocean side
       const startLookAt = controls?.target.clone() ?? new THREE.Vector3();
       const endLookAt = new THREE.Vector3(0, 0, 0);
       const duration = 1500; const t0 = Date.now();
@@ -516,9 +516,9 @@ function Earth({ onOceanClick, dimmed, onHover }) {
   const earthTexture = useMemo(() => {
     const tex = new THREE.TextureLoader().load('/earth-texture-extracted.jpg');
     if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
-    // The earth.glb has rotation=[π,0,0] applied (North Pole = -Z convention).
-    // flipY=false ensures the texture Y-axis matches the flipped geometry so
-    // the Northern hemisphere renders at the top of the globe, not the bottom.
+    // glTF spec: textures are stored without Y-flip.
+    // The GLB UVs expect flipY=false. With true (THREE default), the texture
+    // appears vertically mirrored — South Pole at top, North at bottom.
     tex.flipY = false;
     return tex;
   }, []);
@@ -569,7 +569,6 @@ function Earth({ onOceanClick, dimmed, onHover }) {
     <primitive
       ref={groupRef}
       object={scene}
-      rotation={[Math.PI,0,0]}
       onClick={handleClick}
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
@@ -1070,7 +1069,7 @@ export default function App() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', backgroundColor: '#0a0a0f', overflow: 'hidden' }}>
-      <Canvas camera={{ position: [0, 0, 250], fov: 45, near: 1, far: 2000 }}>
+      <Canvas camera={{ position: [110, 65, -215], fov: 45, near: 1, far: 2000 }}>
         <ambientLight intensity={0.5} />
         <directionalLight position={[10, 10, 5]} intensity={1} />
         <directionalLight position={[-10, -10, -5]} intensity={0.5} />
