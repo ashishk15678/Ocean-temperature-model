@@ -57,8 +57,8 @@ export const CONFIG = {
   },
 
   /** Arabian Sea centre coordinates (used for focus button). */
-  ARABIAN_SEA: { lat: 17.0, lon: 65.0, label: 'Arabian Sea' },
+  ARABIAN_SEA: { lat: 15.0, lon: 63.0, label: 'Arabian Sea' },
 
   /** Bay of Bengal centre coordinates (used for focus button). */
-  BAY_OF_BENGAL: { lat: 14.0, lon: 88.0, label: 'Bay of Bengal' },
+  BAY_OF_BENGAL: { lat: 13.0, lon: 86.0, label: 'Bay of Bengal' },
 } as const;

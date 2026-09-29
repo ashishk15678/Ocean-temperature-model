@@ -11,7 +11,9 @@ import { CONFIG } from './config';
 import { useAlarms } from './use-alarms';
 import AlarmPanel from './AlarmPanel';
 
-// ─── Stars ───────────────────────────────────────────────────────────────────
+import { HugeiconsIcon } from '@hugeicons/react';
+import { Analytics03Icon, BellRingIcon, CrosshairIcon, SailboatOffshoreIcon } from '@hugeicons/core-free-icons';
+
 
 function StarField({ count = 2200, paused }) {
   const groupRef = useRef();
@@ -336,17 +338,16 @@ const DataOverlay = React.memo(function DataOverlay({ profile, show }) {
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-around', width: 120 }}>
         {depths_m.map((depth, i) => {
           const nt = normalize(temperature_celsius[i]);
-          const [r, g, b]   = temperatureToRGB(nt);
-          const [r1, g1, b1] = temperatureToRGB(i > 0 ? normalize(temperature_celsius[i-1]) : nt);
-          const [r2, g2, b2] = temperatureToRGB(i < depths_m.length-1 ? normalize(temperature_celsius[i+1]) : nt);
+          const [r, g, b] = temperatureToRGB(nt);
           return (
             <div key={i} style={{
               padding: `${Math.max(8, itemHeight * 0.3)}px 20px`,
-              background: `linear-gradient(180deg,rgb(${r1},${g1},${b1}) 0%,rgb(${r},${g},${b}) 50%,rgb(${r2},${g2},${b2}) 100%)`,
-              color: 'white', fontSize: Math.max(12, Math.min(15, itemHeight * 0.4)),
+              background: `rgba(${r},${g},${b},0.18)`,
+              color: `rgb(${r},${g},${b})`,
+              fontSize: Math.max(12, Math.min(15, itemHeight * 0.4)),
               fontWeight: 700, borderRadius: 8, textAlign: 'center',
-              boxShadow: `0 4px 16px rgba(${r},${g},${b},0.5)`,
-              border: '2px solid rgba(255,255,255,0.4)', backdropFilter: 'blur(8px)',
+              boxShadow: `0 2px 10px rgba(${r},${g},${b},0.3)`,
+              border: `1px solid rgba(${r},${g},${b},0.45)`, backdropFilter: 'blur(8px)',
               animation: `slideInLeft 0.5s ease-out ${i * 0.03}s both`,
               minHeight: Math.max(30, itemHeight * 0.7),
             }}>{depth}m</div>
@@ -359,11 +360,11 @@ const DataOverlay = React.memo(function DataOverlay({ profile, show }) {
           return (
             <div key={i} style={{
               padding: `${Math.max(8, itemHeight * 0.3)}px 20px`,
-              background: 'rgba(0,0,0,0.92)', color: `rgb(${r},${g},${b})`,
+              background: 'rgba(8,10,18,0.88)', color: `rgb(${r},${g},${b})`,
               fontSize: Math.max(13, Math.min(16, itemHeight * 0.45)),
               fontWeight: 700, fontFamily: 'monospace', borderRadius: 8, textAlign: 'center',
-              boxShadow: `0 4px 16px rgba(${r},${g},${b},0.6)`,
-              border: `2px solid rgb(${r},${g},${b})`, backdropFilter: 'blur(8px)',
+              boxShadow: `0 2px 10px rgba(${r},${g},${b},0.35)`,
+              border: `1px solid rgba(${r},${g},${b},0.5)`, backdropFilter: 'blur(8px)',
               animation: `slideInRight 0.5s ease-out ${i * 0.03}s both`,
               minHeight: Math.max(30, itemHeight * 0.7),
             }}>{temp.toFixed(1)}°C</div>
@@ -515,6 +516,10 @@ function Earth({ onOceanClick, dimmed, onHover }) {
   const earthTexture = useMemo(() => {
     const tex = new THREE.TextureLoader().load('/earth-texture-extracted.jpg');
     if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+    // The earth.glb has rotation=[π,0,0] applied (North Pole = -Z convention).
+    // flipY=false ensures the texture Y-axis matches the flipped geometry so
+    // the Northern hemisphere renders at the top of the globe, not the bottom.
+    tex.flipY = false;
     return tex;
   }, []);
 
@@ -573,6 +578,79 @@ function Earth({ onOceanClick, dimmed, onHover }) {
 }
 
 useGLTF.preload('/earth.glb');
+
+// ─── Focus marker (Google-Earth style ring on globe surface) ──────────────────
+//
+// Renders two concentric rings + a tiny centre dot at the focused lat/lon,
+// sitting just above the sphere surface (~101 units radius) and always
+// oriented to face the camera (billboard via quaternion copy each frame).
+//
+// Animates opacity in/out so it doesn't pop.
+
+function FocusMarker({ focusCoords }) {
+  const groupRef  = useRef();
+  const opacityRef = useRef(0);
+  const matRefs   = useRef([]);
+  const { camera } = useThree();
+
+  // Recompute world position whenever focusCoords changes
+  const worldPos = useMemo(() => {
+    if (!focusCoords) return null;
+    return latLonToVector3(focusCoords.lat, focusCoords.lon, 101);
+  }, [focusCoords]);
+
+  useFrame(() => {
+    if (!groupRef.current) return;
+
+    // Fade in when coords present, fade out when null
+    const target = worldPos ? 1 : 0;
+    opacityRef.current += (target - opacityRef.current) * 0.08;
+    const op = opacityRef.current;
+
+    matRefs.current.forEach(m => {
+      if (m) { m.opacity = op; m.needsUpdate = true; }
+    });
+
+    if (worldPos) {
+      groupRef.current.position.copy(worldPos);
+      // Billboard: copy camera quaternion so rings always face viewer
+      groupRef.current.quaternion.copy(camera.quaternion);
+    }
+  });
+
+  if (!worldPos && opacityRef.current < 0.01) return null;
+
+  const pos = worldPos ?? groupRef.current?.position ?? new THREE.Vector3(0, 101, 0);
+
+  return (
+    <group ref={groupRef} position={pos}>
+      {/* Outer ring */}
+      <mesh>
+        <torusGeometry args={[4.2, 0.28, 12, 64]} />
+        <meshBasicMaterial
+          ref={el => { matRefs.current[0] = el; }}
+          color="#ffffff" transparent opacity={0} depthWrite={false}
+        />
+      </mesh>
+      {/* Inner ring — thinner, slightly smaller */}
+      <mesh>
+        <torusGeometry args={[2.6, 0.16, 12, 64]} />
+        <meshBasicMaterial
+          ref={el => { matRefs.current[1] = el; }}
+          color="#ffffff" transparent opacity={0} depthWrite={false}
+        />
+      </mesh>
+      {/* Centre dot */}
+      <mesh>
+        <circleGeometry args={[0.45, 32]} />
+        <meshBasicMaterial
+          ref={el => { matRefs.current[2] = el; }}
+          color="#ffffff" transparent opacity={0} depthWrite={false}
+        />
+      </mesh>
+    </group>
+  );
+}
 
 // ─── Health widget ────────────────────────────────────────────────────────────
 
@@ -699,7 +777,7 @@ const ControlBar = React.memo(function ControlBar({ paused, onTogglePause, onFoc
           onClick={() => setFocusOpen(o => !o)}
           title="Fly to a focus region"
         >
-          🎯 Focus Region {focusOpen ? '▲' : '▼'}
+          <HugeiconsIcon icon={CrosshairIcon} size={20} /> Focus Region {focusOpen ? '▲' : '▼'}
         </button>
         {focusOpen && (
           <div style={{
@@ -718,12 +796,120 @@ const ControlBar = React.memo(function ControlBar({ paused, onTogglePause, onFoc
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                 onClick={() => { setFocusOpen(false); onFocus(region); }}
               >
-                🌊 {region.label}
+                <HugeiconsIcon icon={SailboatOffshoreIcon} /> {region.label}
               </button>
             ))}
           </div>
         )}
       </div>
+    </div>
+  );
+});
+
+// ─── Coordinate Input Box ─────────────────────────────────────────────────────
+
+const CoordInputBox = React.memo(function CoordInputBox({ onSubmit, disabled }) {
+  const [lat, setLat] = useState('');
+  const [lon, setLon] = useState('');
+  const [err, setErr] = useState('');
+
+  const { LAT_MIN, LAT_MAX, LON_MIN, LON_MAX } = CONFIG.GRID;
+
+  const validate = () => {
+    const la = parseFloat(lat);
+    const lo = parseFloat(lon);
+    if (isNaN(la) || isNaN(lo)) { setErr('Enter valid numbers'); return null; }
+    if (la < -90 || la > 90)    { setErr('Latitude must be –90 to 90'); return null; }
+    if (lo < -180 || lo > 180)  { setErr('Longitude must be –180 to 180'); return null; }
+    setErr('');
+    return { lat: la, lon: lo };
+  };
+
+  const handleGo = () => {
+    const coords = validate();
+    if (!coords) return;
+    onSubmit(coords);
+  };
+
+  const handleKey = (e) => {
+    if (e.key === 'Enter') handleGo();
+  };
+
+  const inGrid = () => {
+    const la = parseFloat(lat), lo = parseFloat(lon);
+    if (isNaN(la) || isNaN(lo)) return null;
+    return la >= LAT_MIN && la <= LAT_MAX && lo >= LON_MIN && lo <= LON_MAX;
+  };
+
+  const gridOk = inGrid();
+
+  return (
+    <div style={{
+      position: 'absolute', top: 20, left: '50%', transform: 'translateX(-50%)',
+      zIndex: 99, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        background: 'rgba(8,8,18,0.92)', border: '1px solid rgba(255,255,255,0.12)',
+        borderRadius: 12, padding: '8px 12px', backdropFilter: 'blur(14px)',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+      }}>
+        <input
+          type="number" placeholder="Lat (-90–90)"
+          value={lat} onChange={e => { setLat(e.target.value); setErr(''); }}
+          onKeyDown={handleKey} disabled={disabled}
+          style={{
+            width: 116, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)',
+            borderRadius: 7, padding: '6px 10px', color: '#e2e8f0',
+            fontFamily: 'ui-monospace,monospace', fontSize: 12, outline: 'none',
+            transition: 'border-color 0.15s',
+          }}
+          onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.7)'}
+          onBlur={e  => e.target.style.borderColor = 'rgba(255,255,255,0.10)'}
+        />
+        <input
+          type="number" placeholder="Lon (-180–180)"
+          value={lon} onChange={e => { setLon(e.target.value); setErr(''); }}
+          onKeyDown={handleKey} disabled={disabled}
+          style={{
+            width: 130, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)',
+            borderRadius: 7, padding: '6px 10px', color: '#e2e8f0',
+            fontFamily: 'ui-monospace,monospace', fontSize: 12, outline: 'none',
+            transition: 'border-color 0.15s',
+          }}
+          onFocus={e => e.target.style.borderColor = 'rgba(99,102,241,0.7)'}
+          onBlur={e  => e.target.style.borderColor = 'rgba(255,255,255,0.10)'}
+        />
+        {/* in-grid indicator */}
+        {gridOk !== null && (
+          <span style={{
+            fontSize: 10, fontFamily: 'ui-monospace,monospace', fontWeight: 700,
+            color: gridOk ? '#10b981' : '#f59e0b', whiteSpace: 'nowrap', flexShrink: 0,
+          }}>
+            {gridOk ? 'in grid' : 'off-grid'}
+          </span>
+        )}
+        <button
+          onClick={handleGo} disabled={disabled}
+          style={{
+            all: 'unset', boxSizing: 'border-box', display: 'inline-flex',
+            alignItems: 'center', justifyContent: 'center',
+            padding: '6px 14px', borderRadius: 8, cursor: disabled ? 'not-allowed' : 'pointer',
+            background: disabled ? 'rgba(99,102,241,0.3)' : 'rgba(99,102,241,0.85)',
+            border: '1px solid rgba(139,92,246,0.5)',
+            color: '#fff', fontSize: 12, fontWeight: 700,
+            fontFamily: 'system-ui,sans-serif', whiteSpace: 'nowrap',
+            transition: 'background 0.15s', opacity: disabled ? 0.6 : 1,
+          }}
+        >Go →</button>
+      </div>
+      {err && (
+        <div style={{
+          fontSize: 11, color: '#fca5a5', background: 'rgba(20,5,5,0.92)',
+          border: '1px solid rgba(239,68,68,0.35)', borderRadius: 6, padding: '4px 10px',
+          fontFamily: 'ui-monospace,monospace',
+        }}>{err}</div>
+      )}
     </div>
   );
 });
@@ -743,7 +929,11 @@ export default function App() {
   const [healthData, setHealthData] = useState(null);
   const [paused, setPaused] = useState(false);
   const [hoverCoords, setHoverCoords] = useState(null); // { lat, lon } | null
+  const [focusCoords, setFocusCoords] = useState(null); // { lat, lon } | null — drives FocusMarker
   const controlsRef = useRef();
+  // Toast for "no data available"
+  const [noDataToast, setNoDataToast] = useState(false);
+  const [noDataToastVisible, setNoDataToastVisible] = useState(false);
 
   const { alarms, error: alarmError, addAlarm, removeAlarm } = useAlarms(CONFIG.ALARM_POLL_INTERVAL_MS);
 
@@ -774,6 +964,7 @@ export default function App() {
     setError(null);
     setShowCrossSection(false);
     setClickedLocation({ lat, lon });
+    setFocusCoords(null); // direct click — no region marker needed
     setCameraTarget(point);
     setCameraStage('zoom-in');
     try {
@@ -798,6 +989,7 @@ export default function App() {
     setProfile(null);
     setClickedLocation(null);
     setCameraTarget(null);
+    setFocusCoords(null);
   }, []);
 
   const handleResetView = useCallback(() => {
@@ -808,12 +1000,61 @@ export default function App() {
   const handleFocus = useCallback((region) => {
     setCameraTarget(region); // { lat, lon, label }
     setCameraStage('focus');
+    setFocusCoords({ lat: region.lat, lon: region.lon });
   }, []);
 
   const handleFocusComplete = useCallback(() => {
     setCameraStage(null);
     setCameraTarget(null);
+    // Keep focusCoords so the marker stays visible while user inspects the region
   }, []);
+
+  // Show a "no data" toast for a given duration
+  const showNoDataToast = useCallback(() => {
+    setNoDataToast(true);
+    requestAnimationFrame(() => setNoDataToastVisible(true));
+    const hide = setTimeout(() => setNoDataToastVisible(false), 3200);
+    const rem  = setTimeout(() => setNoDataToast(false), 3700);
+    return () => { clearTimeout(hide); clearTimeout(rem); };
+  }, []);
+
+  // Handle the lat/lon coordinate input box submission
+  const handleCoordSubmit = useCallback(async ({ lat, lon }) => {
+    const { LAT_MIN, LAT_MAX, LON_MIN, LON_MAX } = CONFIG.GRID;
+    // Stop rotation immediately
+    setPaused(true);
+
+    if (lat < LAT_MIN || lat > LAT_MAX || lon < LON_MIN || lon > LON_MAX) {
+      // Point is outside the model grid — show toast, fly there anyway so user sees the globe position
+      showNoDataToast();
+      const dir = latLonToVector3(lat, lon, 1);
+      setCameraTarget({ lat, lon, label: `${lat.toFixed(2)}°, ${lon.toFixed(2)}°` });
+      setCameraStage('focus');
+      setFocusCoords({ lat, lon });
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setShowCrossSection(false);
+    setClickedLocation({ lat, lon });
+    setFocusCoords(null); // clear any region marker — zooming in to click point
+
+    // Fly to the point first
+    const point3d = latLonToVector3(lat, lon, 100);
+    setCameraTarget(point3d);
+    setCameraStage('zoom-in');
+
+    try {
+      const data = await fetchTemperatureProfile({ latitude: lat, longitude: lon });
+      setProfile(data);
+    } catch (err) {
+      // Backend returned an error — might be outside data range even within grid bounds
+      showNoDataToast();
+      setLoading(false);
+      setCameraStage(null);
+    }
+  }, [showNoDataToast]);
 
   // Route camera complete to the right handler
   const handleCameraComplete = useCallback(() => {
@@ -847,6 +1088,7 @@ export default function App() {
             <ShootingStars paused={paused} />
             <Asteroids paused={paused} />
             <Earth onOceanClick={handleOceanClick} dimmed={showCrossSection} onHover={setHoverCoords} />
+            <FocusMarker focusCoords={focusCoords} />
             <GeologicalCrossSection profile={profile} show={showCrossSection} clickedPoint={cameraTarget} />
           </Suspense>
         </ModelErrorBoundary>
@@ -863,6 +1105,30 @@ export default function App() {
       </Canvas>
 
       <DataOverlay profile={profile} show={showCrossSection} />
+
+      {/* ── Coordinate input box ── */}
+      {!showCrossSection && (
+        <CoordInputBox onSubmit={handleCoordSubmit} disabled={loading} />
+      )}
+
+      {/* ── No-data toast ── */}
+      {noDataToast && (
+        <div style={{
+          position: 'fixed', bottom: 120, left: '50%', transform: noDataToastVisible
+            ? 'translateX(-50%) translateY(0)' : 'translateX(-50%) translateY(12px)',
+          opacity: noDataToastVisible ? 1 : 0,
+          transition: 'transform 0.28s cubic-bezier(.22,1,.36,1), opacity 0.22s ease',
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '11px 20px', borderRadius: 10,
+          background: 'rgba(9,9,18,0.96)', border: '1px solid rgba(245,158,11,0.35)',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.6)', backdropFilter: 'blur(16px)',
+          fontFamily: "'JetBrains Mono','Fira Code',ui-monospace,monospace",
+          fontSize: 12, color: 'rgba(220,210,190,0.95)', zIndex: 300, pointerEvents: 'none',
+        }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#f59e0b', boxShadow: '0 0 8px #f59e0b', flexShrink: 0, display: 'inline-block' }} />
+          No data available for this location
+        </div>
+      )}
 
       {/* Coordinate HUD — shows live lat/lon on hover */}
       {hoverCoords && !showCrossSection && (
@@ -900,24 +1166,26 @@ export default function App() {
       }}>
         {showCrossSection && (
           <button onClick={handleResetView} style={{
-            ...btnBase, background: 'linear-gradient(135deg,#667eea,#764ba2)',
-            boxShadow: '0 4px 16px rgba(102,126,234,0.5)',
+            ...btnBase, background: 'rgba(99,102,241,0.85)',
+            border: '1px solid rgba(139,92,246,0.5)',
           }}>← Back to Earth</button>
         )}
         {/* Dashboard link */}
         <a href="/dashboard" target="_blank" style={{
-          ...btnBase, background: 'rgba(15,23,42,0.85)',
+          ...btnBase, background: '',
           border: '1px solid rgba(99,102,241,0.4)', textDecoration: 'none',
-        }}>📊 Dashboard</a>
+        }}><HugeiconsIcon icon={Analytics03Icon} size={20} className='p-1 border border-border rounded-lg' /> Dashboard</a>
         {/* Alarm bell */}
         {!showAlarmPanel && (
           <button onClick={() => setShowAlarmPanel(true)} title="Set temperature alarms" style={{
             ...btnBase, padding: 0, width: 44, height: 44, borderRadius: 10,
             background: alarms.some(a => a.status === 'triggered')
-              ? 'linear-gradient(135deg,#ef5350,#c62828)' : 'rgba(10,10,20,0.9)',
+              ? 'rgba(239,68,68,0.85)' : 'rgba(10,10,20,0.9)',
+            border: alarms.some(a => a.status === 'triggered')
+              ? '1px solid rgba(239,68,68,0.6)' : '1px solid rgba(255,255,255,0.12)',
             position: 'relative',
           }}>
-            🔔
+            <HugeiconsIcon icon={BellRingIcon} size={20} />
             {activeAlarmCount > 0 && (
               <span style={{
                 position: 'absolute', top: 6, right: 6, background: '#4fc3f7',
@@ -944,11 +1212,11 @@ export default function App() {
           textAlign: 'center', color: 'white', fontFamily: 'system-ui', pointerEvents: 'none',
         }}>
           <div style={{
-            background: 'rgba(10,10,15,0.85)', padding: '12px 28px', borderRadius: 12,
-            backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)',
+            background: 'rgba(8,8,18,0.88)', padding: '10px 24px', borderRadius: 10,
+            backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.08)',
           }}>
-            <p style={{ margin: 0, fontSize: 14, fontWeight: 600, opacity: 0.9 }}>
-              🌊 Click any ocean to explore temperature layers · Use Focus to jump to Arabian Sea or Bay of Bengal
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, opacity: 0.85 }}>
+              <HugeiconsIcon icon={SailboatOffshoreIcon} size={18} /> Click any ocean to explore · Enter coordinates above · Focus jumps to Arabian Sea or Bay of Bengal
             </p>
           </div>
         </div>
@@ -957,10 +1225,10 @@ export default function App() {
       {/* Loading */}
       {loading && (
         <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)', textAlign:'center' }}>
-          <div style={{ width:60, height:60, border:'5px solid rgba(102,126,234,0.2)',
-            borderTop:'5px solid #667eea', borderRadius:'50%', margin:'0 auto 20px',
+          <div style={{ width:60, height:60, border:'4px solid rgba(99,102,241,0.15)',
+            borderTop:'4px solid rgba(99,102,241,0.9)', borderRadius:'50%', margin:'0 auto 20px',
             animation:'spin 1s linear infinite' }} />
-          <p style={{ color:'white', fontSize:16, fontWeight:600 }}>Diving deep…</p>
+          <p style={{ color:'rgba(220,220,240,0.9)', fontSize:16, fontWeight:600, fontFamily:'system-ui' }}>Diving deep…</p>
           <style>{`@keyframes spin { to { transform:rotate(360deg) } }`}</style>
         </div>
       )}

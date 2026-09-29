@@ -22,6 +22,21 @@ import React, {
 import { fetchTemperatureProfile, fetchHealth, fetchModelInfo } from './ocean-api';
 import { temperatureToRGB, makeNormalizer } from './color-scale';
 import { CONFIG } from './config';
+import { HugeiconsIcon } from '@hugeicons/react';
+import {
+  SailboatOffshoreIcon,
+  GlobeIcon,
+  ArrowLeft01Icon,
+  Navigation01Icon,
+} from '@hugeicons/core-free-icons';
+import {
+  ResponsiveContainer,
+  AreaChart, Area,
+  BarChart, Bar,
+  LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ReferenceLine,
+} from 'recharts';
 
 // ─── Module-level cache ───────────────────────────────────────────────────────
 const _cache = new Map();
@@ -34,14 +49,15 @@ async function cached(key, fetcher) {
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const C = {
-  bg:      '#07080d',
+  bg: '#242424',
+  top: "#0a0a0a",
   surf:    '#0d0f18',
   raised:  '#12141f',
   border:  '#1a1d2e',
   bhi:     '#252840',
   text:    '#dde1f0',
-  muted:   '#5a6280',
-  dim:     '#30364a',
+  muted:   '#94a3b8',   // was #5a6280 — lifted for readable labels (~5:1 on surf)
+  dim:     '#64748b',   // was #30364a — still subtle but ~3:1 on surf
   blue:    '#3b82f6',
   cyan:    '#06b6d4',
   green:   '#10b981',
@@ -432,6 +448,171 @@ const NormTable = memo(({ vars }) => {
   );
 });
 
+// ─── Recharts shared style helpers ───────────────────────────────────────────
+
+const TOOLTIP_STYLE = {
+  contentStyle: {
+    background: '#0d0f18', border: '1px solid #1a1d2e',
+    borderRadius: 8, fontSize: 11, fontFamily: "'JetBrains Mono','Fira Code',monospace",
+    color: '#dde1f0', boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+  },
+  labelStyle: { color: '#94a3b8', marginBottom: 4 },
+  itemStyle:  { color: '#dde1f0' },
+  cursor:     { stroke: '#1a1d2e', strokeWidth: 1 },
+};
+
+const AXIS_STYLE = { fill: '#64748b', fontSize: 10, fontFamily: "'JetBrains Mono',monospace" };
+const GRID_STYLE = { stroke: '#1a1d2e', strokeDasharray: '3 3' };
+
+// ─── Chart: depth-temperature area (both regions overlaid) ───────────────────
+//
+// X = depth (m), Y = temperature (°C).  Two overlapping areas with
+// distinct colours.  Click a data point to highlight that depth row.
+
+const DepthTempChart = memo(function DepthTempChart({ profileMap }) {
+  const [activeDepth, setActiveDepth] = useState(null);
+
+  const data = useMemo(() => {
+    const as = profileMap[CONFIG.ARABIAN_SEA.label];
+    const bb = profileMap[CONFIG.BAY_OF_BENGAL.label];
+    if (!as && !bb) return [];
+    const depths = (as ?? bb).depths_m;
+    return depths.map((d, i) => ({
+      depth: d,
+      'Arabian Sea':    as ? +as.temperature_c[i].toFixed(3) : null,
+      'Bay of Bengal':  bb ? +bb.temperature_c[i].toFixed(3) : null,
+    }));
+  }, [profileMap]);
+
+  if (!data.length) return null;
+
+  const handleClick = (payload) => {
+    if (!payload?.activePayload) return;
+    const d = payload.activeLabel;
+    setActiveDepth(prev => prev === d ? null : d);
+  };
+
+  return (
+    <div>
+      {activeDepth && (
+        <div style={{ fontSize: 10, color: C.cyan, fontFamily: C.mono, marginBottom: 6 }}>
+          Selected depth: {activeDepth} m
+          {data.find(d => d.depth === activeDepth) && (() => {
+            const row = data.find(d => d.depth === activeDepth);
+            const as = row['Arabian Sea'], bb = row['Bay of Bengal'];
+            const delta = (as != null && bb != null) ? (as - bb).toFixed(3) : null;
+            return (
+              <span style={{ color: C.muted, marginLeft: 10 }}>
+                AS {as ?? '—'}°C · BoB {bb ?? '—'}°C
+                {delta && <span style={{ color: Math.abs(+delta) > 0.5 ? C.red : C.green, marginLeft: 8 }}>Δ {delta > 0 ? '+' : ''}{delta}°C</span>}
+              </span>
+            );
+          })()}
+        </div>
+      )}
+      <ResponsiveContainer width="100%" height={220}>
+        <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -8 }} onClick={handleClick}
+          style={{ cursor: 'pointer' }}>
+          <defs>
+            <linearGradient id="asGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%"  stopColor={C.cyan}  stopOpacity={0.25} />
+              <stop offset="95%" stopColor={C.cyan}  stopOpacity={0.03} />
+            </linearGradient>
+            <linearGradient id="bbGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%"  stopColor={C.blue}  stopOpacity={0.25} />
+              <stop offset="95%" stopColor={C.blue}  stopOpacity={0.03} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid {...GRID_STYLE} />
+          <XAxis dataKey="depth" tick={AXIS_STYLE} label={{ value: 'Depth (m)', position: 'insideBottom', offset: -2, fill: '#64748b', fontSize: 9 }} />
+          <YAxis tick={AXIS_STYLE} unit="°C" />
+          <Tooltip {...TOOLTIP_STYLE} formatter={(v, n) => [`${v}°C`, n]} labelFormatter={l => `Depth: ${l} m`} />
+          <Legend wrapperStyle={{ fontSize: 10, fontFamily: C.mono, paddingTop: 6 }} />
+          {activeDepth && <ReferenceLine x={activeDepth} stroke={C.amber} strokeWidth={1.5} strokeDasharray="4 2" />}
+          <Area type="monotone" dataKey="Arabian Sea"   stroke={C.cyan} strokeWidth={1.5} fill="url(#asGrad)" dot={false} activeDot={{ r: 4, fill: C.cyan }} />
+          <Area type="monotone" dataKey="Bay of Bengal" stroke={C.blue} strokeWidth={1.5} fill="url(#bbGrad)" dot={false} activeDot={{ r: 4, fill: C.blue }} />
+        </AreaChart>
+      </ResponsiveContainer>
+      <div style={{ fontSize: 9, color: C.dim, fontFamily: C.mono, marginTop: 4, textAlign: 'center' }}>
+        Click any point to highlight that depth
+      </div>
+    </div>
+  );
+});
+
+// ─── Chart: temperature gradient (surface → deep) bar chart ──────────────────
+//
+// Shows a grouped bar chart of 6 representative depths for both regions,
+// making the thermocline drop visually obvious.
+
+const SAMPLE_IDXS = [0, 2, 4, 6, 8, 10, 12, 13]; // indices into depth array
+
+const TempGradientChart = memo(function TempGradientChart({ profileMap }) {
+  const [hovered, setHovered] = useState(null);
+
+  const data = useMemo(() => {
+    const as = profileMap[CONFIG.ARABIAN_SEA.label];
+    const bb = profileMap[CONFIG.BAY_OF_BENGAL.label];
+    if (!as && !bb) return [];
+    const depths = (as ?? bb).depths_m;
+    return SAMPLE_IDXS.filter(i => i < depths.length).map(i => ({
+      depth: `${depths[i]}m`,
+      'Arabian Sea':    as ? +as.temperature_c[i].toFixed(2) : null,
+      'Bay of Bengal':  bb ? +bb.temperature_c[i].toFixed(2) : null,
+    }));
+  }, [profileMap]);
+
+  if (!data.length) return null;
+
+  return (
+    <ResponsiveContainer width="100%" height={180}>
+      <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}
+        onMouseMove={e => e?.activeLabel && setHovered(e.activeLabel)}
+        onMouseLeave={() => setHovered(null)}>
+        <CartesianGrid {...GRID_STYLE} vertical={false} />
+        <XAxis dataKey="depth" tick={AXIS_STYLE} />
+        <YAxis tick={AXIS_STYLE} unit="°" domain={['auto', 'auto']} />
+        <Tooltip {...TOOLTIP_STYLE} formatter={(v, n) => [`${v}°C`, n]} />
+        <Legend wrapperStyle={{ fontSize: 10, fontFamily: C.mono, paddingTop: 4 }} />
+        <Bar dataKey="Arabian Sea"   fill={C.cyan} radius={[2,2,0,0]} maxBarSize={22}
+          opacity={hovered && hovered !== 'Arabian Sea' ? 0.4 : 1} />
+        <Bar dataKey="Bay of Bengal" fill={C.blue} radius={[2,2,0,0]} maxBarSize={22}
+          opacity={hovered && hovered !== 'Bay of Bengal' ? 0.4 : 1} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+});
+
+// ─── Chart: yearly data availability timeline ────────────────────────────────
+
+const YearTimelineChart = memo(function YearTimelineChart({ availableYears, activeYear }) {
+  const data = useMemo(() =>
+    availableYears.map(y => ({
+      year: String(y),
+      available: 1,
+      active: y === activeYear ? 1 : 0,
+    })),
+  [availableYears, activeYear]);
+
+  return (
+    <ResponsiveContainer width="100%" height={60}>
+      <BarChart data={data} margin={{ top: 2, right: 4, bottom: 0, left: -20 }} barCategoryGap="30%">
+        <XAxis dataKey="year" tick={AXIS_STYLE} axisLine={false} tickLine={false} />
+        <YAxis hide />
+        <Tooltip
+          {...TOOLTIP_STYLE}
+          formatter={(_, __, props) => [props.payload.year === String(activeYear) ? 'Active' : 'Available', '']}
+          labelFormatter={() => ''}
+        />
+        <Bar dataKey="available" stackId="a"
+          fill={C.border} radius={[3,3,3,3]} />
+        <Bar dataKey="active" stackId="a"
+          fill={C.amber} radius={[3,3,3,3]} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+});
+
 // ─── Focus regions ────────────────────────────────────────────────────────────
 const FOCUS = [CONFIG.ARABIAN_SEA, CONFIG.BAY_OF_BENGAL];
 const ACCENT = [C.cyan, C.blue];
@@ -520,21 +701,21 @@ export default function Dashboard() {
 
       <div style={{
         minHeight:'100vh', background:C.bg, backgroundImage:DOT_BG,
-        fontFamily:C.sans, color:C.text, padding:'20px 24px 48px',
+        fontFamily:C.sans, color:C.text, padding:'',
       }}>
 
         {/* ── Header ──────────────────────────────────────────────────── */}
         <header style={{
           display:'flex', justifyContent:'space-between', alignItems:'center',
           marginBottom:24, paddingBottom:18, borderBottom:`1px solid ${C.border}`,
-          flexWrap:'wrap', gap:12,
+          flexWrap:'wrap', gap:12,backgroundColor:C.top, padding:"10px 10px"
         }}>
           <div style={{ display:'flex', alignItems:'center', gap:14 }}>
             <div style={{
               width:34, height:34, borderRadius:7,
               background:C.surf, border:`1px solid ${C.border}`,
               display:'flex', alignItems:'center', justifyContent:'center', fontSize:17,
-            }}>🌊</div>
+            }}>     <HugeiconsIcon icon={SailboatOffshoreIcon} size={18} />  </div>
             <div>
               <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
                 <h1 style={{ margin:0, fontSize:17, fontWeight:700, letterSpacing:'-0.02em' }}>
@@ -556,7 +737,9 @@ export default function Dashboard() {
               padding:'6px 13px', borderRadius:6,
               border:`1px solid ${C.border}`, background:C.surf,
               color:C.muted, fontSize:11, textDecoration:'none', fontWeight:500,
-            }}>← Globe</a>
+            }}>
+              <HugeiconsIcon icon={ArrowLeft01Icon} size={13} />Globe
+            </a>
             <button onClick={fetchAll} style={{
               display:'inline-flex', alignItems:'center', gap:5,
               padding:'6px 13px', borderRadius:6,
@@ -568,7 +751,8 @@ export default function Dashboard() {
 
         {/* ── Grid ────────────────────────────────────────────────────── */}
         <div style={{
-          display:'grid',
+          display: 'grid',
+          padding:"20px 20px",
           gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',
           gap:12, alignItems:'start',
         }}>
@@ -789,6 +973,33 @@ export default function Dashboard() {
             </Card>
           )}
 
+          {/* 12a — Depth-temperature area chart */}
+          {bothLoaded&&(
+            <Card title="Depth vs Temperature — Both Regions" accent={C.cyan} col={3}
+              badge={<Badge color={C.cyan}>Interactive</Badge>}>
+              <DepthTempChart profileMap={profileMap}/>
+            </Card>
+          )}
+
+          {/* 12b — Temperature gradient bar chart */}
+          {bothLoaded&&(
+            <Card title="Temperature at Key Depths" accent={C.blue} col={2}
+              badge={<Badge color={C.blue}>Hover bars</Badge>}>
+              <TempGradientChart profileMap={profileMap}/>
+            </Card>
+          )}
+
+          {/* 12c — Year availability timeline */}
+          <Card title="Data Year Timeline" accent={C.amber}>
+            {!iLoad&&(
+              <YearTimelineChart
+                availableYears={info?.available_years ?? CONFIG.AVAILABLE_YEARS}
+                activeYear={parseInt(CONFIG.DEFAULT_DATE.slice(0,4))}
+              />
+            )}
+            {iLoad&&<Spin/>}
+          </Card>
+
           {/* 13 — Model pipeline description */}
           <Card title="Inference Pipeline" accent={C.dim} col={2}>
             {[
@@ -818,7 +1029,10 @@ export default function Dashboard() {
                 background:C.raised, border:`1px solid ${C.border}`,
                 borderRadius:6, padding:'10px 12px', marginBottom:8,
               }}>
-                <div style={{ fontWeight:700, fontSize:13, marginBottom:6 }}>🌊 {r.name}</div>
+                <div style={{ fontWeight:700, fontSize:13, marginBottom:6, display:'flex', alignItems:'center', gap:6 }}>
+                  <HugeiconsIcon icon={Navigation01Icon} size={13} color={C.cyan} />
+                  {r.name}
+                </div>
                 <KV k="Centre lat" v={`${r.lat}°N`}/>
                 <KV k="Centre lon" v={`${r.lon}°E`}/>
                 {profileMap[r.name]&&(
